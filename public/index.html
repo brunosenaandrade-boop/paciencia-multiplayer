@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Paciência Multiplayer</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>♠</text></svg>">
 <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -117,6 +118,7 @@
   .card.face-down {
     background: linear-gradient(135deg, #2c3e7b 0%, #1a2755 100%);
     cursor: default;
+    pointer-events: none;
   }
   .card.face-down::after {
     content: ''; position: absolute; inset: 6px; border-radius: 6px;
@@ -212,7 +214,7 @@
       <div class="ready-badge" id="slot2Ready" style="display:none">✓ Pronto</div>
     </div>
   </div>
-  <button class="btn btn-primary" id="readyBtn" onclick="markReady()" style="width:220px">Estou Pronto!</button>
+  <button class="btn btn-primary" id="readyBtn" onclick="markReady()" style="width:220px" disabled>Aguardando oponente...</button>
   <div class="status-msg" id="waitingStatus">Aguardando oponente entrar...</div>
 </div>
 
@@ -417,6 +419,8 @@ function handleMessage(msg) {
       document.getElementById('slot2').classList.replace('empty', 'filled');
       document.getElementById('slot2Name').textContent = opponentName;
       document.getElementById('waitingStatus').textContent = 'Oponente entrou! Clique "Estou Pronto!"';
+      document.getElementById('readyBtn').disabled = false;
+      document.getElementById('readyBtn').textContent = 'Estou Pronto!';
       break;
 
     case 'welcome':
@@ -427,6 +431,8 @@ function handleMessage(msg) {
       document.getElementById('slot2Name').textContent = myName;
       document.getElementById('slot2').classList.replace('empty', 'filled');
       document.getElementById('waitingStatus').textContent = 'Conectado! Clique "Estou Pronto!"';
+      document.getElementById('readyBtn').disabled = false;
+      document.getElementById('readyBtn').textContent = 'Estou Pronto!';
       break;
 
     case 'ready':
