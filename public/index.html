@@ -1,0 +1,708 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Paciência Multiplayer</title>
+<script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: 'Segoe UI', system-ui, sans-serif;
+    background: linear-gradient(135deg, #1a472a 0%, #0d2818 50%, #1a3a2a 100%);
+    min-height: 100vh; color: #fff; overflow-x: hidden;
+    user-select: none; -webkit-user-select: none;
+  }
+
+  /* LOBBY */
+  #lobby {
+    display: flex; flex-direction: column; align-items: center;
+    justify-content: center; min-height: 100vh; gap: 20px;
+  }
+  #lobby h1 { font-size: 2.5em; text-shadow: 2px 2px 8px rgba(0,0,0,.5); }
+  #lobby h1 span { color: #e74c3c; }
+  .lobby-box {
+    background: rgba(0,0,0,.4); border-radius: 16px; padding: 30px;
+    width: 420px; max-width: 92vw; backdrop-filter: blur(10px);
+    border: 1px solid rgba(255,255,255,.1);
+  }
+  .lobby-box h2 { margin-bottom: 15px; font-size: 1.2em; color: #8fbc8f; }
+  .lobby-box input {
+    width: 100%; padding: 12px 16px; border-radius: 8px; border: none;
+    font-size: 1em; background: rgba(255,255,255,.15); color: #fff;
+    outline: none; margin-bottom: 10px;
+  }
+  .lobby-box input::placeholder { color: rgba(255,255,255,.4); }
+  .btn {
+    display: inline-block; padding: 12px 24px; border-radius: 8px;
+    border: none; font-size: 1em; cursor: pointer; font-weight: 600;
+    transition: all .2s; width: 100%; margin-top: 8px;
+  }
+  .btn:disabled { opacity: .5; cursor: not-allowed; }
+  .btn-primary { background: #27ae60; color: #fff; }
+  .btn-primary:hover:not(:disabled) { background: #2ecc71; transform: translateY(-1px); }
+  .btn-secondary { background: rgba(255,255,255,.15); color: #fff; }
+  .btn-secondary:hover:not(:disabled) { background: rgba(255,255,255,.25); }
+  .divider { text-align: center; margin: 15px 0; color: rgba(255,255,255,.3); }
+  .room-code {
+    font-size: 2em; font-weight: bold; text-align: center;
+    letter-spacing: .3em; color: #f1c40f; margin: 10px 0;
+  }
+  .status-msg { text-align: center; margin-top: 10px; color: #8fbc8f; font-size: .9em; }
+  .error-msg { color: #e74c3c; text-align: center; margin-top: 8px; font-size: .9em; }
+
+  /* WAITING ROOM */
+  #waiting {
+    display: none; flex-direction: column; align-items: center;
+    justify-content: center; min-height: 100vh; gap: 20px;
+  }
+  .player-slots { display: flex; gap: 20px; margin: 20px 0; flex-wrap: wrap; justify-content: center; }
+  .player-slot {
+    width: 170px; height: 110px; border-radius: 12px; display: flex;
+    flex-direction: column; align-items: center; justify-content: center;
+    font-weight: 600; font-size: 1.1em;
+  }
+  .player-slot.filled { background: rgba(39,174,96,.3); border: 2px solid #27ae60; }
+  .player-slot.empty { background: rgba(255,255,255,.05); border: 2px dashed rgba(255,255,255,.2); }
+  .player-slot .label { font-size: .75em; color: rgba(255,255,255,.5); margin-top: 4px; }
+  .ready-badge { color: #2ecc71; font-size: .8em; margin-top: 4px; }
+
+  /* GAME */
+  #game { display: none; padding: 10px 20px; }
+  .top-bar {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 8px 16px; background: rgba(0,0,0,.3); border-radius: 10px;
+    margin-bottom: 12px; flex-wrap: wrap; gap: 8px;
+  }
+  .top-bar .info { display: flex; gap: 20px; align-items: center; }
+  .top-bar .info span { font-size: .9em; }
+  .opponent-bar {
+    display: flex; align-items: center; gap: 10px;
+    background: rgba(231,76,60,.15); padding: 6px 14px; border-radius: 8px;
+  }
+  .opponent-bar .progress-bar {
+    width: 120px; height: 8px; background: rgba(255,255,255,.1);
+    border-radius: 4px; overflow: hidden;
+  }
+  .opponent-bar .progress-fill {
+    height: 100%; background: #e74c3c; border-radius: 4px;
+    transition: width .3s;
+  }
+
+  /* CARD TABLE */
+  .table { display: flex; flex-direction: column; gap: 16px; max-width: 980px; margin: 0 auto; }
+  .top-row { display: flex; justify-content: space-between; }
+  .stock-waste { display: flex; gap: 12px; }
+  .foundations { display: flex; gap: 12px; }
+  .tableau { display: flex; gap: 12px; justify-content: center; }
+  .tableau-col { position: relative; min-height: 180px; width: 100px; }
+
+  /* CARDS */
+  .card-slot {
+    width: 100px; height: 140px; border-radius: 10px;
+    border: 2px dashed rgba(255,255,255,.15); background: rgba(0,0,0,.1);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 1.8em; color: rgba(255,255,255,.15);
+  }
+  .card {
+    width: 100px; height: 140px; border-radius: 10px;
+    display: flex; flex-direction: column; align-items: center;
+    justify-content: center; font-weight: bold; cursor: pointer;
+    position: relative; transition: box-shadow .15s, transform .15s;
+    box-shadow: 0 2px 6px rgba(0,0,0,.3);
+  }
+  .card:hover { transform: translateY(-3px); box-shadow: 0 6px 16px rgba(0,0,0,.4); }
+  .card.selected { box-shadow: 0 0 0 3px #f1c40f, 0 6px 20px rgba(241,196,15,.3); transform: translateY(-5px); }
+  .card.face-up { background: #fff; color: #333; }
+  .card.face-down {
+    background: linear-gradient(135deg, #2c3e7b 0%, #1a2755 100%);
+    cursor: default;
+  }
+  .card.face-down::after {
+    content: ''; position: absolute; inset: 6px; border-radius: 6px;
+    border: 2px solid rgba(255,255,255,.15);
+  }
+  .card.red { color: #c0392b; }
+  .card.black { color: #2c3e50; }
+  .card .rank-top { position: absolute; top: 6px; left: 8px; font-size: .9em; line-height: 1; }
+  .card .suit-top { position: absolute; top: 20px; left: 8px; font-size: .8em; }
+  .card .center-suit { font-size: 2.2em; }
+  .card .rank-bottom { position: absolute; bottom: 6px; right: 8px; font-size: .9em; transform: rotate(180deg); line-height: 1; }
+  .tableau-col .card { position: absolute; left: 0; }
+  .stock-pile { cursor: pointer; }
+  .stock-pile:hover { transform: scale(1.03); }
+  .stock-empty {
+    width: 100px; height: 140px; border-radius: 10px;
+    border: 2px dashed rgba(255,255,255,.2); background: rgba(0,0,0,.1);
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer; font-size: 1.5em; color: rgba(255,255,255,.3);
+  }
+  .stock-empty:hover { border-color: rgba(255,255,255,.4); }
+
+  /* WIN OVERLAY */
+  #win-overlay {
+    display: none; position: fixed; inset: 0; background: rgba(0,0,0,.7);
+    z-index: 1000; align-items: center; justify-content: center;
+    backdrop-filter: blur(6px);
+  }
+  .win-box {
+    background: linear-gradient(135deg, #1a472a, #2d5a3f);
+    border-radius: 20px; padding: 40px; text-align: center;
+    border: 2px solid rgba(255,255,255,.15);
+    box-shadow: 0 20px 60px rgba(0,0,0,.5); max-width: 90vw;
+  }
+  .win-box h2 { font-size: 2.2em; margin-bottom: 10px; }
+  .win-box .trophy { font-size: 4em; margin-bottom: 10px; }
+  .win-box .stats { margin: 20px 0; font-size: 1.1em; line-height: 1.8; color: #8fbc8f; }
+  .win-box .btn { width: auto; padding: 12px 40px; margin-top: 10px; }
+
+  .connecting { animation: pulse 1.5s ease-in-out infinite; }
+  @keyframes pulse { 0%,100% { opacity: .5; } 50% { opacity: 1; } }
+</style>
+</head>
+<body>
+
+<!-- LOBBY -->
+<div id="lobby">
+  <h1>♠ Paciência <span>♥</span></h1>
+  <p style="color:#8fbc8f;font-size:1.1em;margin-top:-10px">Multiplayer</p>
+  <div class="lobby-box">
+    <h2>Seu Nome</h2>
+    <input type="text" id="playerName" placeholder="Digite seu nome..." maxlength="20">
+    <button class="btn btn-primary" id="createBtn" onclick="createRoom()">Criar Sala</button>
+    <div class="divider">— ou —</div>
+    <input type="text" id="roomCode" placeholder="Código da sala (6 letras)" maxlength="6"
+      style="text-transform:uppercase; text-align:center; letter-spacing:.2em; font-size:1.2em;">
+    <button class="btn btn-secondary" id="joinBtn" onclick="joinRoom()">Entrar na Sala</button>
+    <div id="lobbyError" class="error-msg"></div>
+    <div id="lobbyStatus" class="status-msg"></div>
+  </div>
+</div>
+
+<!-- WAITING ROOM -->
+<div id="waiting">
+  <h1>Sala de Espera</h1>
+  <div class="room-code" id="displayRoomCode"></div>
+  <p style="color:rgba(255,255,255,.5);font-size:.9em">Compartilhe este código com seu oponente</p>
+  <div class="player-slots">
+    <div class="player-slot filled" id="slot1">
+      <span id="slot1Name">-</span>
+      <div class="label">Jogador 1</div>
+      <div class="ready-badge" id="slot1Ready" style="display:none">✓ Pronto</div>
+    </div>
+    <div class="player-slot empty" id="slot2">
+      <span id="slot2Name">Aguardando...</span>
+      <div class="label">Jogador 2</div>
+      <div class="ready-badge" id="slot2Ready" style="display:none">✓ Pronto</div>
+    </div>
+  </div>
+  <button class="btn btn-primary" id="readyBtn" onclick="markReady()" style="width:220px">Estou Pronto!</button>
+  <div class="status-msg" id="waitingStatus">Aguardando oponente entrar...</div>
+</div>
+
+<!-- GAME -->
+<div id="game">
+  <div class="top-bar">
+    <div class="info">
+      <span>⏱ <span id="timer">0:00</span></span>
+      <span>🃏 <span id="moveCount">0</span></span>
+      <span>📊 <span id="foundationCount">0</span>/52</span>
+    </div>
+    <div class="opponent-bar">
+      <span id="opponentNameDisplay">Oponente</span>
+      <div class="progress-bar"><div class="progress-fill" id="opponentProgress" style="width:0%"></div></div>
+      <span id="opponentFoundation">0/52</span>
+    </div>
+  </div>
+  <div class="table">
+    <div class="top-row">
+      <div class="stock-waste">
+        <div id="stock"></div>
+        <div id="waste"><div class="card-slot"></div></div>
+      </div>
+      <div class="foundations">
+        <div id="f0" class="card-slot" onclick="clickFoundation(0)">♠</div>
+        <div id="f1" class="card-slot" onclick="clickFoundation(1)">♥</div>
+        <div id="f2" class="card-slot" onclick="clickFoundation(2)">♦</div>
+        <div id="f3" class="card-slot" onclick="clickFoundation(3)">♣</div>
+      </div>
+    </div>
+    <div class="tableau" id="tableau"></div>
+  </div>
+</div>
+
+<!-- WIN OVERLAY -->
+<div id="win-overlay">
+  <div class="win-box">
+    <div class="trophy" id="winEmoji">🏆</div>
+    <h2 id="winTitle">Vitória!</h2>
+    <div class="stats" id="winStats"></div>
+    <button class="btn btn-primary" onclick="requestNewGame()">Jogar Novamente</button>
+  </div>
+</div>
+
+<script>
+// ── State ──
+let peer, conn, isHost = false;
+let roomId, myName, opponentName = '';
+let gameSeed, gameStarted = false, timerInterval = null, startTime = 0;
+let moves = 0, myReady = false, opReady = false;
+let stock = [], waste = [], foundations = [[], [], [], []], tableau = [];
+let selected = null;
+
+const SUITS = ['♠', '♥', '♦', '♣'];
+const RANKS = ['', 'A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K'];
+function isRed(s) { return s === 1 || s === 2; }
+
+// ── Seeded RNG ──
+function mulberry32(a) {
+  return function() {
+    a |= 0; a = a + 0x6D2B79F5 | 0;
+    var t = Math.imul(a ^ a >>> 15, 1 | a);
+    t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+    return ((t ^ t >>> 14) >>> 0) / 4294967296;
+  };
+}
+
+function createDeck(seed) {
+  const rng = mulberry32(seed);
+  const deck = [];
+  for (let s = 0; s < 4; s++)
+    for (let r = 1; r <= 13; r++)
+      deck.push({ suit: s, rank: r });
+  for (let i = deck.length - 1; i > 0; i--) {
+    const j = Math.floor(rng() * (i + 1));
+    [deck[i], deck[j]] = [deck[j], deck[i]];
+  }
+  return deck;
+}
+
+// ── PeerJS ──
+function genRoomId() {
+  const c = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  let id = '';
+  for (let i = 0; i < 6; i++) id += c[Math.floor(Math.random() * c.length)];
+  return id;
+}
+
+function peerIdFromRoom(room) { return 'paciencia-mp-' + room; }
+
+function createRoom() {
+  myName = document.getElementById('playerName').value.trim() || 'Jogador 1';
+  isHost = true;
+  roomId = genRoomId();
+  gameSeed = Math.floor(Math.random() * 2147483647);
+
+  document.getElementById('lobbyStatus').textContent = 'Conectando...';
+  document.getElementById('lobbyStatus').className = 'status-msg connecting';
+  document.getElementById('createBtn').disabled = true;
+
+  peer = new Peer(peerIdFromRoom(roomId), { debug: 0 });
+
+  peer.on('open', () => {
+    showWaiting();
+    document.getElementById('slot1Name').textContent = myName;
+  });
+
+  peer.on('connection', (c) => {
+    conn = c;
+    setupConn();
+  });
+
+  peer.on('error', (err) => {
+    document.getElementById('lobbyError').textContent = 'Erro: ' + err.type;
+    document.getElementById('lobbyStatus').textContent = '';
+    document.getElementById('createBtn').disabled = false;
+  });
+}
+
+function joinRoom() {
+  myName = document.getElementById('playerName').value.trim() || 'Jogador 2';
+  const code = document.getElementById('roomCode').value.trim().toUpperCase();
+  if (!code || code.length < 4) {
+    document.getElementById('lobbyError').textContent = 'Digite o código da sala';
+    return;
+  }
+
+  isHost = false;
+  roomId = code;
+
+  document.getElementById('lobbyStatus').textContent = 'Conectando à sala...';
+  document.getElementById('lobbyStatus').className = 'status-msg connecting';
+  document.getElementById('joinBtn').disabled = true;
+
+  peer = new Peer(undefined, { debug: 0 });
+
+  peer.on('open', () => {
+    conn = peer.connect(peerIdFromRoom(roomId), { reliable: true });
+    conn.on('open', () => {
+      setupConn();
+      send({ type: 'join', name: myName });
+    });
+    conn.on('error', () => {
+      document.getElementById('lobbyError').textContent = 'Não foi possível conectar à sala';
+      document.getElementById('joinBtn').disabled = false;
+    });
+  });
+
+  peer.on('error', (err) => {
+    document.getElementById('lobbyError').textContent = 'Sala não encontrada';
+    document.getElementById('lobbyStatus').textContent = '';
+    document.getElementById('joinBtn').disabled = false;
+  });
+}
+
+function setupConn() {
+  conn.on('data', (data) => handleMessage(data));
+  conn.on('close', () => {
+    if (gameStarted) {
+      document.getElementById('waitingStatus').textContent = 'Oponente desconectou!';
+    }
+  });
+}
+
+function send(obj) { if (conn && conn.open) conn.send(obj); }
+
+// ── Message Handling ──
+function handleMessage(msg) {
+  switch (msg.type) {
+    case 'join':
+      opponentName = msg.name;
+      // Host sends game info back
+      send({ type: 'welcome', name: myName, seed: gameSeed });
+      document.getElementById('slot2').classList.replace('empty', 'filled');
+      document.getElementById('slot2Name').textContent = opponentName;
+      document.getElementById('waitingStatus').textContent = 'Oponente entrou! Clique "Estou Pronto!"';
+      break;
+
+    case 'welcome':
+      opponentName = msg.name;
+      gameSeed = msg.seed;
+      showWaiting();
+      document.getElementById('slot1Name').textContent = opponentName;
+      document.getElementById('slot2Name').textContent = myName;
+      document.getElementById('slot2').classList.replace('empty', 'filled');
+      document.getElementById('waitingStatus').textContent = 'Conectado! Clique "Estou Pronto!"';
+      break;
+
+    case 'ready':
+      opReady = true;
+      const idx = isHost ? 'slot2Ready' : 'slot1Ready';
+      document.getElementById(idx).style.display = 'block';
+      if (myReady && opReady) startGame();
+      break;
+
+    case 'progress':
+      updateOpponentProgress(msg.foundation, msg.moves);
+      break;
+
+    case 'win':
+      showGameOver(false, msg.name, msg.time, msg.moves);
+      break;
+
+    case 'new_game':
+      gameSeed = msg.seed;
+      resetToWaiting();
+      break;
+
+    case 'accept_new_game':
+      resetToWaiting();
+      break;
+  }
+}
+
+// ── Lobby / Waiting ──
+function showWaiting() {
+  document.getElementById('lobby').style.display = 'none';
+  document.getElementById('waiting').style.display = 'flex';
+  document.getElementById('displayRoomCode').textContent = roomId;
+}
+
+function markReady() {
+  myReady = true;
+  send({ type: 'ready' });
+  const readyId = isHost ? 'slot1Ready' : 'slot2Ready';
+  document.getElementById(readyId).style.display = 'block';
+  document.getElementById('readyBtn').disabled = true;
+  document.getElementById('readyBtn').textContent = 'Aguardando...';
+  document.getElementById('waitingStatus').textContent = 'Esperando oponente ficar pronto...';
+  if (myReady && opReady) startGame();
+}
+
+function requestNewGame() {
+  gameSeed = Math.floor(Math.random() * 2147483647);
+  send({ type: 'new_game', seed: gameSeed });
+  resetToWaiting();
+}
+
+function resetToWaiting() {
+  document.getElementById('win-overlay').style.display = 'none';
+  document.getElementById('game').style.display = 'none';
+  document.getElementById('waiting').style.display = 'flex';
+  document.getElementById('readyBtn').disabled = false;
+  document.getElementById('readyBtn').textContent = 'Estou Pronto!';
+  document.getElementById('slot1Ready').style.display = 'none';
+  document.getElementById('slot2Ready').style.display = 'none';
+  document.getElementById('waitingStatus').textContent = 'Nova rodada! Clique "Estou Pronto!"';
+  if (timerInterval) clearInterval(timerInterval);
+  gameStarted = false;
+  myReady = false;
+  opReady = false;
+}
+
+// ── Game Logic ──
+function startGame() {
+  document.getElementById('waiting').style.display = 'none';
+  document.getElementById('game').style.display = 'block';
+  document.getElementById('opponentNameDisplay').textContent = opponentName;
+  document.getElementById('opponentProgress').style.width = '0%';
+  document.getElementById('opponentFoundation').textContent = '0/52';
+
+  moves = 0; selected = null;
+  stock = []; waste = [];
+  foundations = [[], [], [], []];
+  tableau = [];
+  gameStarted = true;
+
+  const deck = createDeck(gameSeed);
+  let idx = 0;
+  for (let c = 0; c < 7; c++) {
+    tableau[c] = [];
+    for (let r = 0; r <= c; r++)
+      tableau[c].push({ ...deck[idx++], faceUp: r === c });
+  }
+  for (let i = idx; i < 52; i++) stock.push(deck[i]);
+
+  startTime = Date.now();
+  timerInterval = setInterval(updateTimer, 1000);
+  updateTimer();
+  render();
+}
+
+function updateTimer() {
+  const s = Math.floor((Date.now() - startTime) / 1000);
+  document.getElementById('timer').textContent = `${Math.floor(s/60)}:${(s%60).toString().padStart(2,'0')}`;
+}
+
+function getFoundationTotal() { return foundations.reduce((a, f) => a + f.length, 0); }
+
+function sendProgress() { send({ type: 'progress', foundation: getFoundationTotal(), moves }); }
+
+function checkWin() {
+  if (getFoundationTotal() === 52) {
+    const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+    send({ type: 'win', name: myName, time: elapsed, moves });
+    showGameOver(true, myName, elapsed, moves);
+  }
+}
+
+function updateOpponentProgress(f, m) {
+  document.getElementById('opponentFoundation').textContent = `${f}/52`;
+  document.getElementById('opponentProgress').style.width = `${(f/52)*100}%`;
+}
+
+// ── Moves ──
+function canPlaceOnFoundation(card, fIdx) {
+  if (card.suit !== fIdx) return false;
+  const f = foundations[fIdx];
+  return f.length === 0 ? card.rank === 1 : card.rank === f[f.length-1].rank + 1;
+}
+
+function canPlaceOnTableau(card, colIdx) {
+  const col = tableau[colIdx];
+  if (col.length === 0) return card.rank === 13;
+  const top = col[col.length-1];
+  return top.faceUp && isRed(card.suit) !== isRed(top.suit) && card.rank === top.rank - 1;
+}
+
+function flipTopCard(ci) {
+  const c = tableau[ci];
+  if (c.length > 0 && !c[c.length-1].faceUp) c[c.length-1].faceUp = true;
+}
+
+function tryAutoFoundation(card, source, colIdx, cardIdx) {
+  for (let f = 0; f < 4; f++) {
+    if (canPlaceOnFoundation(card, f)) {
+      if (source === 'waste') waste.pop();
+      else if (source === 'tableau') { tableau[colIdx].splice(cardIdx); flipTopCard(colIdx); }
+      foundations[f].push(card);
+      moves++; sendProgress(); checkWin(); render();
+      return true;
+    }
+  }
+  return false;
+}
+
+function clickStock() {
+  if (stock.length > 0) { waste.push(stock.pop()); }
+  else if (waste.length > 0) { stock = waste.reverse(); waste = []; }
+  else return;
+  moves++; selected = null; sendProgress(); render();
+}
+
+function clickWaste() {
+  if (waste.length === 0) return;
+  if (selected) { selected = null; render(); return; }
+  selected = { source: 'waste', card: waste[waste.length-1] };
+  render();
+}
+
+function dblClickWaste() {
+  if (waste.length === 0) return;
+  tryAutoFoundation(waste[waste.length-1], 'waste');
+}
+
+function clickFoundation(fIdx) {
+  if (!selected) return;
+  const { source, card, colIdx, cardIdx } = selected;
+  if (canPlaceOnFoundation(card, fIdx)) {
+    if (source === 'waste') waste.pop();
+    else if (source === 'tableau') { tableau[colIdx].splice(cardIdx); flipTopCard(colIdx); }
+    foundations[fIdx].push(card);
+    moves++; selected = null; sendProgress(); checkWin(); render();
+  } else { selected = null; render(); }
+}
+
+function clickTableauCard(ci, ri) {
+  const col = tableau[ci], card = col[ri];
+  if (!card.faceUp) return;
+
+  if (selected) {
+    if (selected.source === 'tableau' && selected.colIdx === ci) { selected = null; render(); return; }
+
+    if (selected.source === 'waste') {
+      if (canPlaceOnTableau(selected.card, ci)) {
+        waste.pop(); col.push(selected.card);
+        moves++; selected = null; sendProgress(); render(); return;
+      }
+    } else if (selected.source === 'tableau') {
+      const src = tableau[selected.colIdx];
+      const moving = src.slice(selected.cardIdx);
+      if (canPlaceOnTableau(moving[0], ci)) {
+        src.splice(selected.cardIdx); flipTopCard(selected.colIdx);
+        col.push(...moving);
+        moves++; selected = null; sendProgress(); render(); return;
+      }
+    }
+    selected = { source: 'tableau', colIdx: ci, cardIdx: ri, card };
+    render(); return;
+  }
+  selected = { source: 'tableau', colIdx: ci, cardIdx: ri, card };
+  render();
+}
+
+function clickEmptyTableau(ci) {
+  if (!selected) return;
+  if (selected.source === 'waste' && selected.card.rank === 13) {
+    waste.pop(); tableau[ci].push(selected.card);
+    moves++; selected = null; sendProgress(); render();
+  } else if (selected.source === 'tableau') {
+    const src = tableau[selected.colIdx];
+    const moving = src.slice(selected.cardIdx);
+    if (moving[0].rank === 13) {
+      src.splice(selected.cardIdx); flipTopCard(selected.colIdx);
+      tableau[ci].push(...moving);
+      moves++; selected = null; sendProgress(); render();
+    }
+  } else { selected = null; render(); }
+}
+
+function dblClickTableau(ci, ri) {
+  const col = tableau[ci], card = col[ri];
+  if (!card.faceUp || ri !== col.length - 1) return;
+  tryAutoFoundation(card, 'tableau', ci, ri);
+}
+
+// ── Render ──
+function cardHTML(card, extra = '') {
+  const color = isRed(card.suit) ? 'red' : 'black';
+  const r = RANKS[card.rank], s = SUITS[card.suit];
+  return `<div class="card face-up ${color} ${extra}">
+    <span class="rank-top">${r}</span><span class="suit-top">${s}</span>
+    <span class="center-suit">${s}</span><span class="rank-bottom">${r}</span></div>`;
+}
+
+function render() {
+  if (!gameStarted) return;
+  document.getElementById('moveCount').textContent = moves;
+  document.getElementById('foundationCount').textContent = getFoundationTotal();
+
+  // Stock
+  const se = document.getElementById('stock');
+  se.innerHTML = stock.length > 0
+    ? `<div class="card face-down stock-pile" onclick="clickStock()"></div>`
+    : `<div class="stock-empty" onclick="clickStock()">↺</div>`;
+
+  // Waste
+  const we = document.getElementById('waste');
+  if (waste.length > 0) {
+    const c = waste[waste.length-1];
+    const sel = selected && selected.source === 'waste' ? 'selected' : '';
+    const color = isRed(c.suit) ? 'red' : 'black';
+    we.innerHTML = `<div class="card face-up ${color} ${sel}" onclick="clickWaste()" ondblclick="dblClickWaste()">
+      <span class="rank-top">${RANKS[c.rank]}</span><span class="suit-top">${SUITS[c.suit]}</span>
+      <span class="center-suit">${SUITS[c.suit]}</span><span class="rank-bottom">${RANKS[c.rank]}</span></div>`;
+  } else { we.innerHTML = '<div class="card-slot"></div>'; }
+
+  // Foundations
+  for (let f = 0; f < 4; f++) {
+    const el = document.getElementById('f'+f), pile = foundations[f];
+    if (pile.length > 0) {
+      const c = pile[pile.length-1], color = isRed(c.suit)?'red':'black';
+      el.innerHTML = `<span class="rank-top">${RANKS[c.rank]}</span><span class="suit-top">${SUITS[c.suit]}</span>
+        <span class="center-suit">${SUITS[c.suit]}</span><span class="rank-bottom">${RANKS[c.rank]}</span>`;
+      el.className = `card face-up ${color}`;
+    } else {
+      el.innerHTML = SUITS[f]; el.className = 'card-slot';
+    }
+    el.onclick = () => clickFoundation(f);
+  }
+
+  // Tableau
+  const te = document.getElementById('tableau');
+  te.innerHTML = '';
+  for (let c = 0; c < 7; c++) {
+    const col = tableau[c], div = document.createElement('div');
+    div.className = 'tableau-col';
+    if (col.length === 0) {
+      div.innerHTML = `<div class="card-slot" style="position:absolute;top:0" onclick="clickEmptyTableau(${c})">K</div>`;
+    } else {
+      for (let r = 0; r < col.length; r++) {
+        const card = col[r], top = r * 28;
+        const isSel = selected && selected.source === 'tableau' && selected.colIdx === c && r >= selected.cardIdx;
+        if (!card.faceUp) {
+          div.innerHTML += `<div class="card face-down" style="position:absolute;top:${top}px"></div>`;
+        } else {
+          const color = isRed(card.suit)?'red':'black';
+          div.innerHTML += `<div class="card face-up ${color} ${isSel?'selected':''}" style="position:absolute;top:${top}px;z-index:${r}"
+            onclick="clickTableauCard(${c},${r})" ondblclick="dblClickTableau(${c},${r})">
+            <span class="rank-top">${RANKS[card.rank]}</span><span class="suit-top">${SUITS[card.suit]}</span>
+            <span class="center-suit">${SUITS[card.suit]}</span><span class="rank-bottom">${RANKS[card.rank]}</span></div>`;
+        }
+      }
+      div.style.minHeight = ((col.length-1)*28+140)+'px';
+    }
+    te.appendChild(div);
+  }
+}
+
+// ── Game Over ──
+function showGameOver(isWinner, winnerName, time, winMoves) {
+  if (timerInterval) clearInterval(timerInterval);
+  gameStarted = false;
+  document.getElementById('win-overlay').style.display = 'flex';
+  document.getElementById('winEmoji').textContent = isWinner ? '🏆' : '😔';
+  document.getElementById('winTitle').textContent = isWinner ? 'Você Venceu!' : `${winnerName} Venceu!`;
+  document.getElementById('winStats').innerHTML = `Tempo: ${time}s<br>Jogadas: ${winMoves}`;
+}
+
+// ── Keyboard ──
+document.getElementById('playerName').addEventListener('keyup', (e) => {
+  if (e.key === 'Enter') document.getElementById('roomCode').value ? joinRoom() : createRoom();
+});
+document.getElementById('roomCode').addEventListener('keyup', (e) => {
+  if (e.key === 'Enter') joinRoom();
+});
+</script>
+</body>
+</html>
