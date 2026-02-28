@@ -126,21 +126,12 @@
 
   /* ── BOARD ── */
   .board-wrapper {
-    flex: 1; display: flex; align-items: center; position: relative;
-    min-height: 140px;
+    flex: 1; display: flex; align-items: center; justify-content: center;
+    position: relative; min-height: 300px; overflow: auto;
+    padding: 10px;
   }
-  .board-container {
-    width: 100%; overflow-x: auto; overflow-y: hidden;
-    padding: 12px 0;
-    display: flex; align-items: center;
-    scrollbar-width: thin; scrollbar-color: rgba(255,255,255,.15) transparent;
-  }
-  .board-container::-webkit-scrollbar { height: 6px; }
-  .board-container::-webkit-scrollbar-track { background: transparent; }
-  .board-container::-webkit-scrollbar-thumb { background: rgba(255,255,255,.15); border-radius: 3px; }
-  .board {
-    display: flex; align-items: center; gap: 2px; padding: 16px 60px;
-    margin: 0 auto; min-width: min-content;
+  .board-area {
+    position: relative; min-width: 200px; min-height: 200px;
   }
   .board-empty {
     color: rgba(255,255,255,.2); font-size: 1.1em; padding: 30px 40px;
@@ -152,16 +143,16 @@
   .domino {
     display: inline-flex; border-radius: 6px;
     background: linear-gradient(180deg, #faf5e4 0%, #f0e8d0 100%);
-    border: 2px solid #c8b98a; position: relative;
+    border: 2px solid #c8b98a; position: absolute;
     box-shadow: 0 2px 8px rgba(0,0,0,.25), inset 0 1px 0 rgba(255,255,255,.6);
     animation: domino-place .3s ease-out;
-    flex-shrink: 0;
   }
   @keyframes domino-place {
-    from { transform: scale(.8) translateY(-10px); opacity: 0; }
-    to { transform: scale(1) translateY(0); opacity: 1; }
+    from { transform: scale(.8); opacity: 0; }
+    to { transform: scale(1); opacity: 1; }
   }
   .domino.horizontal { flex-direction: row; width: 84px; height: 44px; }
+  .domino.vertical { flex-direction: column; width: 44px; height: 84px; }
   .domino-half {
     flex: 1; display: flex; align-items: center; justify-content: center;
     position: relative;
@@ -170,6 +161,11 @@
   .domino.horizontal .domino-half:first-child::after {
     content: ''; position: absolute; right: -1px; top: 20%; height: 60%;
     border-right: 1px solid rgba(255,255,255,.4);
+  }
+  .domino.vertical .domino-half:first-child { border-bottom: 1.5px solid #c8b98a; }
+  .domino.vertical .domino-half:first-child::after {
+    content: ''; position: absolute; bottom: -1px; left: 20%; width: 60%;
+    border-bottom: 1px solid rgba(255,255,255,.4);
   }
 
   /* ── DOTS ── */
@@ -346,19 +342,31 @@
 
   <div class="opponent-hand" id="opponentHand"></div>
 
-  <div class="board-wrapper">
-    <div class="board-container">
-      <div class="board-end hidden" id="leftEnd" onclick="playOnEnd('left')">◀</div>
-      <div class="board" id="board">
-        <div class="board-empty">Primeiro jogador coloca uma peça</div>
-      </div>
-      <div class="board-end hidden" id="rightEnd" onclick="playOnEnd('right')">▶</div>
+  <div class="board-wrapper" id="boardWrapper">
+    <div class="board-area" id="boardArea">
+      <div class="board-empty" id="boardEmpty">Primeiro jogador coloca uma peça</div>
+    </div>
+  </div>
+
+  <!-- End chooser overlay -->
+  <div id="endChooser" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:500;display:none;align-items:center;justify-content:center;gap:40px;backdrop-filter:blur(3px)">
+    <div onclick="playOnEnd('left')" style="cursor:pointer;background:rgba(39,174,96,.2);border:3px solid #27ae60;border-radius:16px;padding:24px 36px;text-align:center;transition:all .2s">
+      <div style="font-size:2em">◀</div>
+      <div style="margin-top:8px;font-weight:700;font-size:1.1em">Esquerda</div>
+      <div style="color:#8fbc8f;font-size:.85em;margin-top:4px" id="leftPreview"></div>
+    </div>
+    <div onclick="cancelEndChoice()" style="cursor:pointer;color:rgba(255,255,255,.5);font-size:.9em;padding:12px">Cancelar</div>
+    <div onclick="playOnEnd('right')" style="cursor:pointer;background:rgba(39,174,96,.2);border:3px solid #27ae60;border-radius:16px;padding:24px 36px;text-align:center;transition:all .2s">
+      <div style="font-size:2em">▶</div>
+      <div style="margin-top:8px;font-weight:700;font-size:1.1em">Direita</div>
+      <div style="color:#8fbc8f;font-size:.85em;margin-top:4px" id="rightPreview"></div>
     </div>
   </div>
 
   <div class="action-section">
     <button class="draw-btn" id="drawBtn" onclick="drawPiece()" disabled>Comprar peça (<span id="drawCount">14</span>)</button>
     <button class="pass-btn" id="passBtn" onclick="passTurn()" disabled style="display:none">Passar a vez</button>
+    <button class="draw-btn" id="resetBtn" onclick="requestResetGame()" style="margin-left:12px;border-color:rgba(241,196,15,.3);color:#f1c40f">Resetar Jogo</button>
   </div>
 
   <div class="hand-section">
@@ -499,6 +507,8 @@ function setupConn() {
       document.getElementById('disconnect-overlay').style.display = 'flex';
     } else {
       document.getElementById('waitingStatus').textContent = 'Oponente desconectou!';
+      document.getElementById('readyBtn').disabled = true;
+      setTimeout(() => backToLobby(), 3000);
     }
   });
 }
@@ -554,18 +564,25 @@ function handleMessage(msg) {
       opponentHandCount--;
       consecutivePasses = 0;
       placePieceOnBoard(msg.piece, msg.end);
+      render();
       if (opponentHandCount === 0) {
         showGameOver(false, opponentName);
       } else {
         myTurn = true;
         showToast('Sua vez!', 'info');
+        render();
       }
-      render();
       break;
 
     case 'draw':
       opponentHandCount++;
-      drawPile.shift();
+      // Remove specific piece for sync safety
+      if (msg.piece) {
+        const idx = drawPile.findIndex(p => p.a === msg.piece.a && p.b === msg.piece.b);
+        if (idx !== -1) drawPile.splice(idx, 1); else drawPile.shift();
+      } else {
+        drawPile.shift();
+      }
       render();
       break;
 
@@ -573,19 +590,33 @@ function handleMessage(msg) {
       consecutivePasses++;
       myTurn = true;
       showToast(opponentName + ' passou a vez', 'warn');
+      render();
       if (consecutivePasses >= 2 && !hasAnyPlay() && drawPile.length === 0) {
-        // Both blocked — game over by lockout
         handleLockout();
       }
-      render();
       break;
 
     case 'win':
+      render();
       showGameOver(false, msg.name);
       break;
 
     case 'lockout':
       showGameOverLockout(msg.myPips, msg.opPips, msg.winnerName);
+      break;
+
+    case 'reset_game':
+      gameSeed = msg.seed;
+      showToast('Jogo resetado!', 'warn');
+      resetAndStartGame();
+      break;
+
+    case 'request_reset':
+      if (confirm(opponentName + ' quer resetar o jogo. Aceitar?')) {
+        gameSeed = Math.floor(Math.random() * 2147483647);
+        send({ type: 'reset_game', seed: gameSeed });
+        resetAndStartGame();
+      }
       break;
 
     case 'new_game':
@@ -748,11 +779,16 @@ function selectPiece(idx) {
   if (board.length === 0 || ends.length === 1) {
     playPiece(idx, ends[0]);
   } else {
-    render(); // show end choosers
+    // Show end chooser modal
+    document.getElementById('leftPreview').textContent = 'Encaixar no ' + leftValue;
+    document.getElementById('rightPreview').textContent = 'Encaixar no ' + rightValue;
+    document.getElementById('endChooser').style.display = 'flex';
+    render();
   }
 }
 
 function playOnEnd(end) {
+  document.getElementById('endChooser').style.display = 'none';
   if (selectedPiece === null) return;
   playPiece(selectedPiece, end);
 }
@@ -766,19 +802,43 @@ function playPiece(idx, end) {
   consecutivePasses = 0;
 
   send({ type: 'play', piece: { a: piece.a, b: piece.b }, end });
-
+  render(); // Render BEFORE game over so board shows final piece
   if (myHand.length === 0) {
     send({ type: 'win', name: myName });
     showGameOver(true, myName);
   }
+}
+
+function cancelEndChoice() {
+  document.getElementById('endChooser').style.display = 'none';
+  selectedPiece = null;
   render();
+}
+
+function requestResetGame() {
+  if (isHost) {
+    gameSeed = Math.floor(Math.random() * 2147483647);
+    send({ type: 'reset_game', seed: gameSeed });
+    resetAndStartGame();
+  } else {
+    send({ type: 'request_reset' });
+    showToast('Pedido de reset enviado...', 'warn');
+  }
+}
+
+function resetAndStartGame() {
+  gameStarted = false;
+  myReady = false; opReady = false;
+  selectedPiece = null;
+  document.getElementById('endChooser').style.display = 'none';
+  startGame();
 }
 
 function drawPiece() {
   if (!myTurn || drawPile.length === 0 || hasAnyPlay()) return;
   const piece = drawPile.shift();
   myHand.push({...piece});
-  send({ type: 'draw' });
+  send({ type: 'draw', piece: { a: piece.a, b: piece.b } });
   render();
 }
 
@@ -791,20 +851,11 @@ function passTurn() {
 }
 
 function handleLockout() {
-  // Both players blocked — lowest pip count wins
   const myPips = myHand.reduce((s, p) => s + p.a + p.b, 0);
-  // We don't know opponent's pips exactly, so host resolves
-  if (isHost) {
-    const all = shufflePieces(gameSeed);
-    const guestHand = all.slice(7, 14);
-    // Reconstruct opponent's remaining hand (approximate — we track count)
-    // Actually, we can calculate: original guest hand minus what was played
-    // Simpler: just compare counts and send both pip counts
-    const opPips = calculateOpponentPips();
-    const winnerName = myPips <= opPips ? myName : opponentName;
-    send({ type: 'lockout', myPips: opPips, opPips: myPips, winnerName });
-    showGameOverLockout(myPips, opPips, winnerName);
-  }
+  const opPips = calculateOpponentPips();
+  const winnerName = myPips <= opPips ? myName : opponentName;
+  send({ type: 'lockout', myPips: opPips, opPips: myPips, winnerName });
+  showGameOverLockout(myPips, opPips, winnerName);
 }
 
 function calculateOpponentPips() {
@@ -936,30 +987,105 @@ function render() {
     </div>`;
   }
 
-  // End indicators
-  const showEnds = selectedPiece !== null && myHand[selectedPiece] && getPlayableEnds(myHand[selectedPiece]).length > 1;
-  document.getElementById('leftEnd').classList.toggle('hidden', !showEnds);
-  document.getElementById('rightEnd').classList.toggle('hidden', !showEnds);
 }
 
 function renderBoard() {
-  const el = document.getElementById('board');
+  const emptyEl = document.getElementById('boardEmpty');
+  const area = document.getElementById('boardArea');
+
+  // Remove old dominoes but keep boardEmpty
+  area.querySelectorAll('.domino').forEach(d => d.remove());
+
   if (board.length === 0) {
-    el.innerHTML = '<div class="board-empty">Primeiro jogador coloca uma peça</div>';
+    emptyEl.style.display = 'block';
+    area.style.width = '300px';
+    area.style.height = '100px';
     return;
   }
-  el.innerHTML = '';
-  for (const p of board) {
-    const d = document.createElement('div');
-    d.className = 'domino horizontal';
-    d.innerHTML = `<div class="domino-half">${dotsHTML(p.leftVal, 7)}</div>
-                   <div class="domino-half">${dotsHTML(p.rightVal, 7)}</div>`;
-    el.appendChild(d);
+  emptyEl.style.display = 'none';
+
+  // Snake layout: place pieces, turn when hitting container edge
+  const wrapper = document.getElementById('boardWrapper');
+  const maxW = wrapper.clientWidth - 40;
+  const hW = 84, hH = 44, vW = 44, vH = 84; // horizontal/vertical piece sizes
+  const gap = 2;
+
+  // Calculate positions with snake turns
+  const positions = []; // { x, y, dir, leftVal, rightVal, isDouble }
+  let cx = 20, cy = 120; // start position
+  let dir = 0; // 0=right, 1=down, 2=left, 3=up
+  let turnDir = 1; // 1=clockwise first turn, then alternate
+
+  for (let i = 0; i < board.length; i++) {
+    const p = board[i];
+    const isDouble = p.leftVal === p.rightVal;
+
+    let pw, ph;
+    if (dir === 0 || dir === 2) {
+      // Moving horizontally
+      if (isDouble) { pw = vW; ph = vH; } else { pw = hW; ph = hH; }
+    } else {
+      // Moving vertically
+      if (isDouble) { pw = hW; ph = hH; } else { pw = vW; ph = vH; }
+    }
+
+    positions.push({ x: cx, y: cy, dir, leftVal: p.leftVal, rightVal: p.rightVal, isDouble, pw, ph });
+
+    // Advance position
+    if (dir === 0) { cx += pw + gap; }
+    else if (dir === 1) { cy += ph + gap; }
+    else if (dir === 2) { cx -= pw + gap; }
+    else if (dir === 3) { cy -= ph + gap; }
+
+    // Check if we need to turn
+    let needTurn = false;
+    if (dir === 0 && cx + hW > maxW) needTurn = true;
+    if (dir === 2 && cx < 10) needTurn = true;
+    if (dir === 1 && cy + vH > 400) needTurn = true;
+    if (dir === 3 && cy < 10) needTurn = true;
+
+    if (needTurn && i < board.length - 1) {
+      if (dir === 0) { dir = 1; cy += 20; }
+      else if (dir === 1) { dir = 2; cx -= 20; }
+      else if (dir === 2) { dir = 3; cy -= 20; }
+      else if (dir === 3) { dir = 0; cx += 20; }
+    }
   }
-  // Auto-scroll to center
-  const c = document.querySelector('.board-container');
+
+  // Calculate bounding box
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  for (const p of positions) {
+    minX = Math.min(minX, p.x);
+    minY = Math.min(minY, p.y);
+    maxX = Math.max(maxX, p.x + p.pw);
+    maxY = Math.max(maxY, p.y + p.ph);
+  }
+
+  area.style.width = (maxX - minX + 40) + 'px';
+  area.style.height = (maxY - minY + 40) + 'px';
+
+  // Render pieces
+  for (const p of positions) {
+    const d = document.createElement('div');
+    const orient = (p.dir === 0 || p.dir === 2) ? (p.isDouble ? 'vertical' : 'horizontal') : (p.isDouble ? 'horizontal' : 'vertical');
+    d.className = 'domino ' + orient;
+
+    let v1 = p.leftVal, v2 = p.rightVal;
+    // For pieces going left or up, reverse display so connecting side faces correctly
+    if (p.dir === 2 || p.dir === 3) { v1 = p.rightVal; v2 = p.leftVal; }
+
+    d.innerHTML = `<div class="domino-half">${dotsHTML(v1, 7)}</div>
+                   <div class="domino-half">${dotsHTML(v2, 7)}</div>`;
+    d.style.left = (p.x - minX + 20) + 'px';
+    d.style.top = (p.y - minY + 20) + 'px';
+    area.appendChild(d);
+  }
+
+  // Center scroll
   requestAnimationFrame(() => {
-    c.scrollLeft = (c.scrollWidth - c.clientWidth) / 2;
+    const bw = wrapper;
+    bw.scrollLeft = (bw.scrollWidth - bw.clientWidth) / 2;
+    bw.scrollTop = (bw.scrollHeight - bw.clientHeight) / 2;
   });
 }
 
