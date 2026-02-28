@@ -156,6 +156,22 @@
   .win-box .stats { margin: 20px 0; font-size: 1.1em; line-height: 1.8; color: #8fbc8f; }
   .win-box .btn { width: auto; padding: 12px 40px; margin-top: 10px; }
 
+  /* DISCONNECT OVERLAY */
+  #disconnect-overlay {
+    display: none; position: fixed; inset: 0; background: rgba(0,0,0,.7);
+    z-index: 1000; align-items: center; justify-content: center;
+    backdrop-filter: blur(6px);
+  }
+  .disconnect-box {
+    background: linear-gradient(135deg, #4a1a1a, #5a2d2d);
+    border-radius: 20px; padding: 40px; text-align: center;
+    border: 2px solid rgba(255,255,255,.15);
+    box-shadow: 0 20px 60px rgba(0,0,0,.5); max-width: 90vw;
+  }
+  .disconnect-box h2 { font-size: 2em; margin-bottom: 10px; color: #e74c3c; }
+  .disconnect-box p { margin: 15px 0; color: #ccc; font-size: 1.1em; }
+  .disconnect-box .btn { width: auto; padding: 12px 40px; margin-top: 10px; }
+
   .connecting { animation: pulse 1.5s ease-in-out infinite; }
   @keyframes pulse { 0%,100% { opacity: .5; } 50% { opacity: 1; } }
 </style>
@@ -238,6 +254,15 @@
     <h2 id="winTitle">Vitória!</h2>
     <div class="stats" id="winStats"></div>
     <button class="btn btn-primary" onclick="requestNewGame()">Jogar Novamente</button>
+  </div>
+</div>
+
+<!-- DISCONNECT OVERLAY -->
+<div id="disconnect-overlay">
+  <div class="disconnect-box">
+    <h2>Oponente Desconectou!</h2>
+    <p>A conexão com o oponente foi perdida.</p>
+    <button class="btn btn-primary" onclick="backToLobby()">Voltar ao Lobby</button>
   </div>
 </div>
 
@@ -356,9 +381,28 @@ function setupConn() {
   conn.on('data', (data) => handleMessage(data));
   conn.on('close', () => {
     if (gameStarted) {
+      if (timerInterval) { clearInterval(timerInterval); timerInterval = null; }
+      gameStarted = false;
+      document.getElementById('disconnect-overlay').style.display = 'flex';
+    } else {
       document.getElementById('waitingStatus').textContent = 'Oponente desconectou!';
     }
   });
+}
+
+function backToLobby() {
+  document.getElementById('disconnect-overlay').style.display = 'none';
+  document.getElementById('win-overlay').style.display = 'none';
+  document.getElementById('game').style.display = 'none';
+  document.getElementById('waiting').style.display = 'none';
+  document.getElementById('lobby').style.display = 'flex';
+  document.getElementById('lobbyStatus').textContent = '';
+  document.getElementById('lobbyError').textContent = '';
+  document.getElementById('createBtn').disabled = false;
+  document.getElementById('joinBtn').disabled = false;
+  if (timerInterval) { clearInterval(timerInterval); timerInterval = null; }
+  gameStarted = false; myReady = false; opReady = false;
+  if (peer) { peer.destroy(); peer = null; conn = null; }
 }
 
 function send(obj) { if (conn && conn.open) conn.send(obj); }
@@ -405,7 +449,9 @@ function handleMessage(msg) {
       resetToWaiting();
       break;
 
-    case 'accept_new_game':
+    case 'request_new_game':
+      gameSeed = Math.floor(Math.random() * 2147483647);
+      send({ type: 'new_game', seed: gameSeed });
       resetToWaiting();
       break;
   }
@@ -430,9 +476,15 @@ function markReady() {
 }
 
 function requestNewGame() {
-  gameSeed = Math.floor(Math.random() * 2147483647);
-  send({ type: 'new_game', seed: gameSeed });
-  resetToWaiting();
+  if (isHost) {
+    gameSeed = Math.floor(Math.random() * 2147483647);
+    send({ type: 'new_game', seed: gameSeed });
+    resetToWaiting();
+  } else {
+    send({ type: 'request_new_game' });
+    document.getElementById('win-overlay').querySelector('.btn').disabled = true;
+    document.getElementById('win-overlay').querySelector('.btn').textContent = 'Aguardando...';
+  }
 }
 
 function resetToWaiting() {
@@ -444,6 +496,10 @@ function resetToWaiting() {
   document.getElementById('slot1Ready').style.display = 'none';
   document.getElementById('slot2Ready').style.display = 'none';
   document.getElementById('waitingStatus').textContent = 'Nova rodada! Clique "Estou Pronto!"';
+  // Reset "Jogar Novamente" button state (may have been disabled for non-host)
+  const replayBtn = document.getElementById('win-overlay').querySelector('.btn');
+  replayBtn.disabled = false;
+  replayBtn.textContent = 'Jogar Novamente';
   if (timerInterval) clearInterval(timerInterval);
   gameStarted = false;
   myReady = false;
@@ -452,6 +508,7 @@ function resetToWaiting() {
 
 // ── Game Logic ──
 function startGame() {
+  if (gameStarted) return;
   document.getElementById('waiting').style.display = 'none';
   document.getElementById('game').style.display = 'block';
   document.getElementById('opponentNameDisplay').textContent = opponentName;
@@ -497,6 +554,7 @@ function checkWin() {
 }
 
 function updateOpponentProgress(f, m) {
+  f = Math.max(0, Math.min(52, f));
   document.getElementById('opponentFoundation').textContent = `${f}/52`;
   document.getElementById('opponentProgress').style.width = `${(f/52)*100}%`;
 }
@@ -535,7 +593,7 @@ function tryAutoFoundation(card, source, colIdx, cardIdx) {
 
 function clickStock() {
   if (stock.length > 0) { waste.push(stock.pop()); }
-  else if (waste.length > 0) { stock = waste.reverse(); waste = []; }
+  else if (waste.length > 0) { stock = [...waste].reverse(); waste = []; }
   else return;
   moves++; selected = null; sendProgress(); render();
 }
@@ -671,7 +729,7 @@ function render() {
         const card = col[r], top = r * 28;
         const isSel = selected && selected.source === 'tableau' && selected.colIdx === c && r >= selected.cardIdx;
         if (!card.faceUp) {
-          div.innerHTML += `<div class="card face-down" style="position:absolute;top:${top}px"></div>`;
+          div.innerHTML += `<div class="card face-down" style="position:absolute;top:${top}px;z-index:${r}"></div>`;
         } else {
           const color = isRed(card.suit)?'red':'black';
           div.innerHTML += `<div class="card face-up ${color} ${isSel?'selected':''}" style="position:absolute;top:${top}px;z-index:${r}"
@@ -695,6 +753,15 @@ function showGameOver(isWinner, winnerName, time, winMoves) {
   document.getElementById('winTitle').textContent = isWinner ? 'Você Venceu!' : `${winnerName} Venceu!`;
   document.getElementById('winStats').innerHTML = `Tempo: ${time}s<br>Jogadas: ${winMoves}`;
 }
+
+// ── Background click to deselect ──
+document.querySelector('.table').addEventListener('click', (e) => {
+  if (e.target.classList.contains('table') || e.target.classList.contains('top-row')
+    || e.target.classList.contains('tableau') || e.target.classList.contains('stock-waste')
+    || e.target.classList.contains('foundations')) {
+    if (selected) { selected = null; render(); }
+  }
+});
 
 // ── Keyboard ──
 document.getElementById('playerName').addEventListener('keyup', (e) => {
